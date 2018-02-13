@@ -1,4 +1,4 @@
-package com.training;
+package com.coreference;
 
 public class Mention {
 

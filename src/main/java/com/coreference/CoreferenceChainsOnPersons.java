@@ -1,4 +1,4 @@
-package com.training;
+package com.coreference;
 
 import java.io.BufferedReader;
 import java.io.File;
