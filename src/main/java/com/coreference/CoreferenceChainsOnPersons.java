@@ -39,6 +39,7 @@ public class CoreferenceChainsOnPersons {
     	props.setProperty("parse.maxlen", "100");
     	props.setProperty("ssplit.eolonly", "true");
     	props.setProperty("tokenize.whitespace","true");
+    	props.setProperty("coref.removeSingletonClusters","false");
     	pipeline = new StanfordCoreNLP(props);
     	factory = (PTBTokenizerFactory<Word>)PTBTokenizer.factory();
 	}
@@ -77,6 +78,8 @@ public class CoreferenceChainsOnPersons {
 			if(person.startTokenInd >= mention.startTokenInd && person.endTokenInd <= person.endTokenInd)
 				personsInMention.add(person);
 		}
+		if(personsInMention.size()==0)
+			return null;
 		if(personsInMention.size()==1)
 			return personsInMention.get(0);
 		else {
@@ -148,21 +151,30 @@ public class CoreferenceChainsOnPersons {
 		pronouns.add("their");
 		pronouns.add("those");
 		pronouns.add("these");
+		pronouns.add("we");
+		pronouns.add("our");
+		pronouns.add("us");
+		
 		boolean found = false;	  
     	for (CorefChain cc : document.get(CorefCoreAnnotations.CorefChainAnnotation.class).values()) {
     		boolean selectChain = true;
+    		if(cc.getMentionsInTextualOrder().size()==1 
+    				&& (cc.getMentionsInTextualOrder().get(0).animacy.compareTo(Animacy.ANIMATE) != 0
+    				       || cc.getMentionsInTextualOrder().get(0).mentionType.compareTo(MentionType.PROPER) != 0)) {
+    			continue;
+    		}
     		for(CorefMention mention : cc.getMentionsInTextualOrder()){
-    			//System.out.println(mention.mentionSpan + " " + mention.mentionType + " " + mention.animacy);
     			if(mention.animacy.compareTo(Animacy.ANIMATE) != 0
     					|| mention.mentionType.compareTo(MentionType.LIST) == 0
     					|| pronouns.contains(mention.mentionSpan.toLowerCase())) {
     				selectChain = false;
-    				//System.out.println("Rejecting!!");
+    				System.err.println("Rejecting!! " + mention.mentionSpan + " " + mention.mentionType + " " + mention.animacy);
     				break;
     			}
     		}
     		if(selectChain) {
     			//System.out.println("---SELECTED ---");
+    			int chainLen = cc.getMentionsInTextualOrder().size();
     			for(CorefMention corefMention : cc.getMentionsInTextualOrder()){
 					Mention mention = new Mention(corefMention.mentionSpan,corefMention.sentNum-1,corefMention.startIndex-1,corefMention.endIndex-2);
     				if(corefMention.mentionType.compareTo(MentionType.PROPER) == 0) {
@@ -170,8 +182,10 @@ public class CoreferenceChainsOnPersons {
     					if(head!=null) {
     						System.out.println(file.getName()+"<,>"+cc.getChainID()+"<,>"+mention.toString()+"<,>"+head.toString()+"<,>"+corefMention.mentionType);
     					//System.out.println(file.getName()+"<,>"+cc.getChainID()+"<,>"+mention.toString());
-    						found = true;
+    					} else if(head==null && allMentions && chainLen!=1) {
+        					System.out.println(file.getName()+"<,>"+cc.getChainID()+"<,>"+mention.toString()+"<,>"+mention.toString()+"<,>NOMINAL");
     					}
+						found = true;
     				} else {
     					if(allMentions) {
         					System.out.println(file.getName()+"<,>"+cc.getChainID()+"<,>"+mention.toString()+"<,>"+mention.toString()+"<,>"+corefMention.mentionType);
@@ -186,8 +200,8 @@ public class CoreferenceChainsOnPersons {
 	}
 	
 	public static void main(String[] args) throws FileNotFoundException, UnsupportedEncodingException{
-		//CoreferenceChainsOnPersons data = new CoreferenceChainsOnPersons(args[0],args[1].contentEquals("all"));
-		CoreferenceChainsOnPersons data = new CoreferenceChainsOnPersons("data/files",false);
+		CoreferenceChainsOnPersons data = new CoreferenceChainsOnPersons(args[0],args[1].contentEquals("all"));
+		//CoreferenceChainsOnPersons data = new CoreferenceChainsOnPersons("data/files",true);
 		ArrayList<File> allFiles = new ArrayList<File>(); 
 		data.listFiles(data.inputDir, allFiles);
 		Map<String,List<Mention>> chains = new HashMap<>();
