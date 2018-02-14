@@ -1,4 +1,4 @@
-package com.coreference;
+package com.training;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -101,7 +101,7 @@ public class NewChains {
 	
 	public String getFirstName(String name) {
 		String punctutations = "!\"#$%&\\\'()*+,-./:;<=>?@[\\]^_`{|}~";
-		name = name.trim().toLowerCase();
+		name = name.trim().toLowerCase().replace(" - ", "-");
 		String[] vals = name.split(" ");
 		for(String val: vals) {
 			if(!punctutations.contains(val))
@@ -113,7 +113,7 @@ public class NewChains {
 	public String getLastName(String name) {
 		String punctutations = "!\"#$%&\\\'()*+,-./:;<=>?@[\\]^_`{|}~";
 		Set<String> suffixes = new HashSet<>(Arrays.asList("ii","iii","iv","jr","jr.","sr","sr.","\'s"));
-		name = name.trim().toLowerCase();
+		name = name.trim().toLowerCase().replace(" - ", "-");
 		List<String> vals = Arrays.asList(name.split(" "));
 		Collections.reverse(vals);
 		for(String val: vals) {
@@ -178,8 +178,8 @@ public class NewChains {
 		pronouns.add("us");
 		
 		Map<String,List<DetailedMention>> newChains = new HashMap<>();
-		Map<String,List<String>> firstToLast = new HashMap<>();
-		Map<String,List<String>> lastToFirst = new HashMap<>();
+		Map<String,Set<String>> firstToLast = new HashMap<>();
+		Map<String,Set<String>> lastToFirst = new HashMap<>();
     	for (CorefChain cc : document.get(CorefCoreAnnotations.CorefChainAnnotation.class).values()) {
     		boolean selectChain = true;
     		if(cc.getMentionsInTextualOrder().size()==1 
@@ -192,7 +192,7 @@ public class NewChains {
     					|| mention.mentionType.compareTo(MentionType.LIST) == 0
     					|| pronouns.contains(mention.mentionSpan.toLowerCase())) {
     				selectChain = false;
-    				System.err.println("Rejecting!! " + mention.mentionSpan + " " + mention.mentionType + " " + mention.animacy);
+    				//System.err.println("Rejecting!! " + mention.mentionSpan + " " + mention.mentionType + " " + mention.animacy);
     				break;
     			}
     		}
@@ -200,8 +200,8 @@ public class NewChains {
     			//System.out.println("---SELECTED ---");
     			//STEP 1 - Collect mentions, first names and last names
     			List<DetailedMention> tempDm = new ArrayList<>();
-    			List<String> tempFirstNames = new ArrayList<>();
-    			List<String> tempLastNames = new ArrayList<>();
+    			Set<String> tempFirstNames = new HashSet<>();
+    			Set<String> tempLastNames = new HashSet<>();
     			int chainLen = cc.getMentionsInTextualOrder().size();
     			for(CorefMention corefMention : cc.getMentionsInTextualOrder()){
 					Mention mention = new Mention(corefMention.mentionSpan,corefMention.sentNum-1,corefMention.startIndex-1,corefMention.endIndex-2);
@@ -214,9 +214,9 @@ public class NewChains {
     						if(!firstName.contentEquals(lastName)) {
     							tempFirstNames.add(firstName);
     							if(!firstToLast.containsKey(firstName))
-    								firstToLast.put(firstName, new ArrayList<>());
+    								firstToLast.put(firstName, new HashSet<>());
     							if(!lastToFirst.containsKey(lastName))
-    								lastToFirst.put(lastName, new ArrayList<>());
+    								lastToFirst.put(lastName, new HashSet<>());
     							firstToLast.get(firstName).add(lastName);
     							lastToFirst.get(lastName).add(firstName);
     							tempDm.add(new DetailedMention(mention, head, firstName + " " + lastName,"PROPER"));
@@ -231,15 +231,18 @@ public class NewChains {
     				}
     			}
     			
+    			List<String> tempFirstList = new ArrayList<>(tempFirstNames);
+    			List<String> tempLastList = new ArrayList<>(tempLastNames);
+    			
     			//STEP 2 - Create chains
     			if(tempFirstNames.size() == 0 && tempLastNames.size() == 0) {
     				newChains.put(String.valueOf(cc.getChainID()), tempDm);		
     			} else if (tempFirstNames.size() == 1 && tempLastNames.size() == 1) {
-    				newChains.put(tempFirstNames.get(0) + " " + tempLastNames.get(0), tempDm);
+    				newChains.put(tempFirstList.get(0) + " " + tempLastList.get(0), tempDm);
     			} else if (tempFirstNames.size() == 0 && tempLastNames.size() == 1) {
-    				newChains.put(tempLastNames.get(0), tempDm);
+    				newChains.put(tempLastList.get(0), tempDm);
     			} else if (tempFirstNames.size() == 1 && tempLastNames.size() == 0) {
-    				newChains.put(tempFirstNames.get(0), tempDm);
+    				newChains.put(tempFirstList.get(0), tempDm);
     			} else {
     				//break down chains
     				for(DetailedMention dm: tempDm) {
@@ -254,19 +257,23 @@ public class NewChains {
     	}
     	
     	//STEP 3 - Combine all chains
-    	for(String chainId: newChains.keySet()) {
-    		if(chainId.contains(" ")) {
-    			String[] vals = chainId.split(" ");
-    			if(firstToLast.get(vals[0]).size() == 1 && lastToFirst.get(vals[1]).size() == 0) {
-    				String fullName = vals[0] + " " + firstToLast.get(vals[0]);
+    	Set<String> chainIds = new HashSet<>(newChains.keySet());
+    	for(String chainId: chainIds) {
+    		if(!chainId.contains(" ")) {
+    			if((firstToLast.containsKey(chainId) && firstToLast.get(chainId).size() == 1) 
+    					&& ((lastToFirst.containsKey(chainId) && lastToFirst.get(chainId).size() == 0) || !lastToFirst.containsKey(chainId))) {
+    				String fullName = chainId + " " + firstToLast.get(chainId).toArray()[0];
     				if(!newChains.containsKey(fullName))
     					newChains.put(fullName,new ArrayList<>());
     				newChains.get(fullName).addAll(newChains.get(chainId));
-    			} else if (firstToLast.get(vals[0]).size() == 0 && lastToFirst.get(vals[1]).size() == 1) {
-    				String fullName = lastToFirst.get(vals[1]) + " " + vals[1];
+    				newChains.remove(chainId);
+    			} else if (((firstToLast.containsKey(chainId) && firstToLast.get(chainId).size() == 0) || !firstToLast.containsKey(chainId))
+    							&& (lastToFirst.containsKey(chainId) && lastToFirst.get(chainId).size() == 1)) {
+    				String fullName = lastToFirst.get(chainId).toArray()[0] + " " + chainId;
     				if(!newChains.containsKey(fullName))
     					newChains.put(fullName,new ArrayList<>());
     				newChains.get(fullName).addAll(newChains.get(chainId));
+    				newChains.remove(chainId);
     			}
     		}
     	}
@@ -277,11 +284,12 @@ public class NewChains {
     			System.out.println(file.getName()+"<,>"+chainId+"<,>"+m.mention().toString()+"<,>"+m.head.toString()+"<,>"+m.type());
     		}
     	}
+    	System.out.println();
 	}
 	
 	public static void main(String[] args) throws FileNotFoundException, UnsupportedEncodingException{
-		//NewChains data = new NewChains(args[0]);
-		NewChains data = new NewChains("data/files");
+		NewChains data = new NewChains(args[0]);
+		//NewChains data = new NewChains("data/files");
 		ArrayList<File> allFiles = new ArrayList<File>(); 
 		data.listFiles(data.inputDir, allFiles);
 		Map<String,List<Mention>> chains = new HashMap<>();
@@ -291,3 +299,4 @@ public class NewChains {
 		}
 	}
 }
+
